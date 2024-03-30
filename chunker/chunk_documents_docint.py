@@ -1,3 +1,4 @@
+import base64
 import json
 import logging
 import os
@@ -121,23 +122,27 @@ def analyze_document_rest(filepath, filename, model):
 
     request_endpoint = f"https://{os.environ['AZURE_FORMREC_SERVICE']}.cognitiveservices.azure.com/{formrec_or_docint}/documentModels/{model}:analyze?api-version={DOCINT_API_VERSION}&features={docint_features}&includeKeys=true"
 
+    headers = {
+        "Content-Type": "application/json",
+        "Ocp-Apim-Subscription-Key": get_secret('formRecKey'),
+        "x-ms-useragent": "gpt-rag/1.0.0"
+    }
+
+    def request():
+        return requests.post(request_endpoint, headers=headers, json=body)
+
     if not network_isolation:
 
-        headers = {
-            "Content-Type": "application/json",
-            "Ocp-Apim-Subscription-Key": get_secret('formRecKey'),
-            "x-ms-useragent": "gpt-rag/1.0.0"
-        }
         body = {
             "urlSource": filepath
         }
         try:
             # Send request
-            response = requests.post(request_endpoint, headers=headers, json=body)
+            response = request()
         except requests.exceptions.ConnectionError as conn_error:
             logging.info("Connection error, retrying in 10seconds...")
             time.sleep(10)
-            response = requests.post(request_endpoint, headers=headers, json=body)
+            response = request()
                 
     else:
         # With network isolation doc int can't access container with no public access, so we download it and send its content as a stream.
@@ -146,7 +151,6 @@ def analyze_document_rest(filepath, filename, model):
         account_url = parsed_url.scheme + "://" + parsed_url.netloc
         container_name = unquote(parsed_url.path.split("/")[1])
         blob_name = filename
-        file_ext = blob_name.split(".")[-1]
 
         logging.info(f"Connecting to blob to get `{blob_name}`.")
 
@@ -154,25 +158,27 @@ def analyze_document_rest(filepath, filename, model):
         blob_service_client = BlobServiceClient(account_url=account_url, credential=credential)
         blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
 
-        headers = {
-            "Content-Type": get_content_type(file_ext),
-            "Ocp-Apim-Subscription-Key": get_secret('formRecKey'),
-            "x-ms-useragent": "gpt-rag/1.0.0"
-        }
-
         blob_error = None
-
         try:
-            data = blob_client.download_blob().readall()
-            response = requests.post(request_endpoint, headers=headers, data=data)
-        except requests.exceptions.ConnectionError as conn_error:
-            logging.info("Connection error, retrying in 10seconds...")
-            time.sleep(10)
+            body = {
+                "base64Source": base64.b64encode( blob_client.download_blob().readall() ).decode()
+                # base64.urlsafe_b64encode output results in HTTP 400 error
+                #   {"error": {"code":"InvalidRequest", "message":"Invalid request.", "innererror":{
+                #     "code":"InvalidContent", "message":"The file is corrupted or format is unsupported. Refer to documentation for the list of supported formats."}}}
+            }
+            # instead of:
+            # data = blob_client.download_blob().readall()
+            # file_ext = blob_name.split(".")[-1]
+            # headers['Content-Type'] = get_content_type(file_ext)
+            # def request():
+            #     return requests.post(request_endpoint, headers=headers, data=data)
+
             try:
-                data = blob_client.download_blob().readall()            
-                response = requests.post(request_endpoint, headers=headers, data=data)
-            except Exception as e:
-                blob_error = e
+                response = request()
+            except requests.exceptions.ConnectionError as conn_error:
+                logging.info("Connection error, retrying in 10seconds...")
+                time.sleep(10)
+                response = request()
         except Exception as e:
             blob_error = e
 
@@ -184,9 +190,12 @@ def analyze_document_rest(filepath, filename, model):
 
     if response.status_code != 202:
         # Request failed
-        error_message = f"Doc Intelligence request error, code {response.status_code}: {response.text}"
-        logging.info(error_message)
-        logging.info(f"filepath: {filepath}")
+        error_message = f"Document Intelligence request error:   code={response.status_code} reason=`{response.reason}` text=`{response.text}`"
+        logging.error(error_message)
+        logging.error(f"filepath:  {filepath}")
+        logging.debug(f"Document Intelligence request URL:     {request_endpoint}")
+        logging.debug(f"Document Intelligence request headers: {headers}")
+        logging.debug(f"Document Intelligence request body:    {body}")
         errors.append(error_message)
         return result, errors
 
