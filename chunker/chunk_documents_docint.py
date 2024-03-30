@@ -92,34 +92,30 @@ def analyze_document_rest(filepath, filename, model):
 
     result = {}
 
+    # TODO Use Doc Int SDK instead of lower-level requests?  https://pypi.org/project/azure-ai-documentintelligence
+
     if get_file_extension(filename) in ["pdf"]:
         docint_features = "ocrHighResolution"
     else:
         docint_features = ""
 
     request_endpoint = f"https://{os.environ['AZURE_FORMREC_SERVICE']}.cognitiveservices.azure.com/{formrec_or_docint}/documentModels/{model}:analyze?api-version={DOCINT_API_VERSION}&features={docint_features}&includeKeys=true"
+    # https://learn.microsoft.com/en-us/rest/api/aiservices/document-models/analyze-document?view=rest-aiservices-2023-07-31
+    # TODO includeKeys appears to be no longer applicable since API version 2.0
+
+    headers = {
+        # "Content-Type": "application/json",
+        "Ocp-Apim-Subscription-Key": get_secret('formRecKey'),
+        "x-ms-useragent": "gpt-rag/1.0.0"
+    }
 
     response = None
 
     if not network_isolation:
-        headers = {
-            # "Content-Type": "application/json",
-            "Ocp-Apim-Subscription-Key": get_secret('formRecKey'),
-            "x-ms-useragent": "gpt-rag/1.0.0"
-        }
         body = {
             "urlSource": filepath
         }
-        try:
-            # Send request
-            response = requests.post(request_endpoint, headers=headers, json=body)
-        except requests.exceptions.ConnectionError as e:
-            logging.info("Connection error, retrying in 10seconds...")
-            time.sleep(10)
-            response = requests.post(request_endpoint, headers=headers, json=body)
-            
     else:
-
         parsed_url = urlparse(filepath)
         account_url = parsed_url.scheme + "://" + parsed_url.netloc
         container_name = unquote(parsed_url.path.split("/")[1])
@@ -131,12 +127,6 @@ def analyze_document_rest(filepath, filename, model):
         blob_service_client = BlobServiceClient(account_url=account_url, credential=credential)
         blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
 
-        headers = {
-            # "Content-Type": "application/pdf",
-            "Ocp-Apim-Subscription-Key": get_secret('formRecKey'),
-            "x-ms-useragent": "gpt-rag/1.0.0"
-        }
-
         body = {
             "base64Source": base64.b64encode( blob_client.download_blob().readall() ).decode()
             # base64.urlsafe_b64encode output results in HTTP 400 error
@@ -144,15 +134,17 @@ def analyze_document_rest(filepath, filename, model):
             #     "code":"InvalidContent", "message":"The file is corrupted or format is unsupported. Refer to documentation for the list of supported formats."}}}
         }
 
+    retries = 1
+    for i in range(retries):
         try:
+            # Send request
             response = requests.post(request_endpoint, headers=headers, json=body)
+            logging.info(f"Removed file: `{filename}`.")  # TODO Reword or remove since didn't remove file
+            break
         except requests.exceptions.ConnectionError as e:
-            logging.info("Connection error, retrying in 10seconds...")
-            time.sleep(10)
-            response = requests.post(request_endpoint, headers=headers, json=body)
-
-        
-        logging.info(f"Removed file: `{blob_name}`.")
+            retry_seconds = 10
+            logging.warning(f"Connection error, retrying in {retry_seconds} seconds...")
+            time.sleep(retry_seconds)
 
     if response is None  or  response.status_code != 202:
         # Request failed
