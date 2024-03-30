@@ -80,22 +80,22 @@ def has_supported_file_extension(file_path: str) -> bool:
     file_extension = get_file_extension(file_path)
     return file_extension in FILE_EXTENSION_DICT
 
-def get_content_type(file_ext):
-    extensions = {
-        "pdf": "application/pdf", 
-        "bmp": "image/bmp",
-        "jpeg": "image/jpeg",
-        "png": "image/png",
-        "tiff": "image/tiff",
-        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "html": "text/html" 
-    }
-    if file_ext in extensions:
-        return extensions[file_ext]
-    else:
-        return "application/octet-stream"
+# def get_content_type(file_ext):
+#     extensions = {
+#         "pdf": "application/pdf",
+#         "bmp": "image/bmp",
+#         "jpeg": "image/jpeg",
+#         "png": "image/png",
+#         "tiff": "image/tiff",
+#         "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+#         "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+#         "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+#         "html": "text/html"
+#     }
+#     if file_ext in extensions:
+#         return extensions[file_ext]
+#     else:
+#         return "application/octet-stream"
 
 def get_secret(secretName):
     keyVaultName = os.environ["AZURE_KEY_VAULT_NAME"]
@@ -115,12 +115,16 @@ def analyze_document_rest(filepath, filename, model):
     result = {}
     errors = []
 
+    # TODO Use Doc Int SDK instead of lower-level requests?  https://pypi.org/project/azure-ai-documentintelligence
+
     if get_file_extension(filename) in ["pdf"]:
         docint_features = "ocrHighResolution"
     else:
         docint_features = ""
 
     request_endpoint = f"https://{os.environ['AZURE_FORMREC_SERVICE']}.cognitiveservices.azure.com/{formrec_or_docint}/documentModels/{model}:analyze?api-version={DOCINT_API_VERSION}&features={docint_features}&includeKeys=true"
+    # https://learn.microsoft.com/en-us/rest/api/aiservices/document-models/analyze-document?view=rest-aiservices-2023-07-31
+    # TODO includeKeys appears to be no longer applicable since API version 2.0
 
     headers = {
         "Content-Type": "application/json",
@@ -141,13 +145,13 @@ def analyze_document_rest(filepath, filename, model):
             callback()
         return result, errors
 
-    response = None
     if not network_isolation:
         body = {
             "urlSource": filepath
         }
     else:
-        # With network isolation doc int can't access container with no public access, so we download it and send its content as a stream.
+        # With network isolation,  Doc Int can't access container with no public access
+        # so download it & send its content as a stream.
 
         parsed_url = urlparse(filepath)
         account_url = parsed_url.scheme + "://" + parsed_url.netloc
@@ -176,16 +180,22 @@ def analyze_document_rest(filepath, filename, model):
         except Exception as blob_error:
             return abort("Blob client error when reading from blob storage:  {blob_error}")
 
+    retries       = 1
+    retry_seconds = 10
+    response      = None
     request_error = None
-    try:
+    for i in range(retries):
         try:
-            response = request()
-        except requests.exceptions.ConnectionError as conn_error:
-            logging.info("Connection error, retrying in 10seconds...")
-            time.sleep(10)
-            response = request()
-    except Exception as e:
-        request_error = e
+            try:
+                # Send request
+                response = request()
+                break
+            except requests.exceptions.ConnectionError as conn_error:
+                logging.warning(f"Connection error, retrying in {retry_seconds} seconds...:  {conn_error}")
+                time.sleep(retry_seconds)
+                raise conn_error
+        except Exception as e:
+            request_error = e
 
     if response is None  or  response.status_code != 202:
         # Request failed
