@@ -1,3 +1,4 @@
+import base64
 import json
 import logging
 import os
@@ -134,22 +135,29 @@ def analyze_document_rest(filepath, filename, model):
             "x-ms-useragent": "gpt-rag/1.0.0"
         }
 
+        body = {
+            "base64Source": base64.b64encode( blob_client.download_blob().readall() ).decode()
+            # base64.urlsafe_b64encode output results in HTTP 400 error
+            #   {"error": {"code":"InvalidRequest", "message":"Invalid request.", "innererror":{
+            #     "code":"InvalidContent", "message":"The file is corrupted or format is unsupported. Refer to documentation for the list of supported formats."}}}
+        }
+
         try:
-            data = blob_client.download_blob().readall()
-            response = requests.post(request_endpoint, headers=headers, data=data)
+            response = requests.post(request_endpoint, headers=headers, json=body)
         except requests.exceptions.ConnectionError as e:
             logging.info("Connection error, retrying in 10seconds...")
             time.sleep(10)
-            data = blob_client.download_blob().readall()            
-            response = requests.post(request_endpoint, headers=headers, data=data)
+            response = requests.post(request_endpoint, headers=headers, json=body)
 
         
         logging.info(f"Removed file: `{blob_name}`.")
 
     if response.status_code != 202:
         # Request failed
-        logging.info(f"Doc Intelligence API error: {response.text}")
-        logging.info(f"urlSource: {filepath}")
+        logging.error(f"Document Intelligence API error:           {response.status_code} {response.reason} {response.text}")
+        logging.error(f"Document Intelligence API request URL:     {request_endpoint}")
+        logging.error(f"Document Intelligence API request headers: {headers}")
+        logging.error(f"Document Intelligence API request body:    {body}")
         return(result)
 
     # Poll for result
