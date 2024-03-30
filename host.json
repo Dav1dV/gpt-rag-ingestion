@@ -9,7 +9,7 @@
       }
     },
     "logLevel": {
-      "Function": "Information"
+      "Function": "Debug"
     }
   },
   "extensionBundle": {

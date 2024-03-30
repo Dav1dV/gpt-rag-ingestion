@@ -164,6 +164,36 @@ def analyze_document_rest(filepath, filename, model):
         blob_service_client = BlobServiceClient(account_url=account_url, credential=credential)
         blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
 
+#        # TODO Remove debug
+#        blob = blob_client.download_blob().readall()
+#        logging.info(f'POST {request_endpoint}')
+#        logging.info(f'headers={headers}')
+#        def test_docint(base64_source):
+#            body = {
+#                "base64Source": base64_source
+#            }
+#            logging.info(f'body={body}')
+#            def _test(body):
+#                response = requests.post(request_endpoint, headers=headers, json=body)
+#                logging.error(    f"Document Intelligence API response:        {response}")
+#                if response is not None:
+#                    logging.error(f"Document Intelligence API response:        {response.status_code} {response.reason} {response.text}")
+#                    logging.error(f"Document Intelligence API response request:{response.request}")
+#            try:
+#                _test(body)
+#            except Exception as e:
+#                logging.error(e)
+#
+#            try:
+#                _test(json.dumps(body))
+#            except Exception as e:
+#                logging.error(e)
+#        test_docint(blob)
+#        test_docint(base64.urlsafe_b64encode(blob))
+#        test_docint(base64.urlsafe_b64encode(blob).decode())
+#        test_docint(base64.b64encode(blob))
+#        test_docint(base64.b64encode(blob).decode())
+
         try:
             body = {
                 "base64Source": base64.b64encode( blob_client.download_blob().readall() ).decode()
@@ -188,6 +218,10 @@ def analyze_document_rest(filepath, filename, model):
         try:
             try:
                 # Send request
+                # TODO Debug remove - debug level logging already being done lower
+#                logging.info(f'POST {request_endpoint}')
+#                logging.info(f'headers={headers}')
+#                logging.info(f'body={body}')
                 response = request()
                 break
             except requests.exceptions.ConnectionError as conn_error:
@@ -316,6 +350,7 @@ def chunk_document(data):
                     errors.append(indexer_error_message('embedding', e))
                     error_occurred = True
                     break
+
                 if check_timeout(start_time):
                     errors.append(indexer_error_message('timeout'))
                     error_occurred = True

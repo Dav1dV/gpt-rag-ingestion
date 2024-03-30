@@ -22,11 +22,13 @@ def document_chunking(req: func.HttpRequest) -> func.HttpResponse:
     # https://learn.microsoft.com/en-us/azure/azure-functions/configure-monitoring?tabs=v2#configure-categories
     # https://learn.microsoft.com/en-us/azure/azure-functions/functions-host-json#logging
     # https://learn.microsoft.com/en-us/azure/azure-functions/configure-monitoring?tabs=v2#overriding-monitoring-configuration-at-runtime
+    # https://github.com/Azure/azure-functions-python-worker/issues/248#issuecomment-1462109100
+    # https://stackoverflow.com/a/63051165
     logging.getLogger().setLevel( os.getenv('LOGLEVEL', 'INFO').upper() )  # for all logging
 
     logging.debug(os.environ)
-    for name, value in os.environ.items():
-        logging.debug(f'{name} = {value}')
+#    for name, value in os.environ.items():
+#        logging.debug(f'{name} = {value}')
 
     logging.info('Invoked document_chunking skill.')
     try:
