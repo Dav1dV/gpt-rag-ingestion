@@ -13,6 +13,9 @@ class DateTimeEncoder(JSONEncoder):
 def document_chunking(req: func.HttpRequest) -> func.HttpResponse:
     import jsonschema
     import logging
+    import os
+
+    logging.basicConfig(level=os.getenv('LOGLEVEL', 'INFO').upper())  # for all logging
     
     logging.info('Invoked document_chunking skill.')
     try:
