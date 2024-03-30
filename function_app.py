@@ -42,6 +42,8 @@ def process_documents(body):
     import logging
     import chunker.chunk_documents_docint
     import chunker.chunk_documents_raw
+    import os
+    from   urllib.parse import urlparse, unquote
 
     values = body['values']
     results = {}
@@ -61,12 +63,33 @@ def process_documents(body):
             "warnings": None
         }
 
+        class Data:
+            '''body.values[].data wrapper with URL-decoded documentUrl filename getter'''
+
+            def __init__(self, data):
+                self.data      = data
+                self._filename = None
+
+            def __str__(self):
+                return str(self.data)
+
+            def __getitem__(self, key):
+                return self.data[key]
+
+            @property
+            def filename(self):
+                if not self._filename:
+                    self._filename = unquote( os.path.basename( urlparse(self.data['documentUrl']).path ) )
+                return self._filename
+
+        data = Data(data)
+
         if chunker.chunk_documents_docint.has_supported_file_extension(data['documentUrl']):
-            logging.info(f"Chunking (doc intelligence) {data['documentUrl'].split('/')[-1]}.")
+            logging.info(f"Chunking (doc intelligence) `{data.filename}`.")
             chunks, errors, warnings = chunker.chunk_documents_docint.chunk_document(data)
 
         elif chunker.chunk_documents_raw.has_supported_file_extension(data['documentUrl']):
-            logging.info(f"Chunking (raw) {data['documentUrl'].split('/')[-1]}.")
+            logging.info(f"Chunking (raw) `{data.filename}`.")
             chunks, errors, warnings = chunker.chunk_documents_raw.chunk_document(data)
         
         # errors = []

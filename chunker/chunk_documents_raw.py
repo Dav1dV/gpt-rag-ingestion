@@ -23,7 +23,7 @@ def chunk_document(data):
     token_overlap = int(os.getenv("TOKEN_OVERLAP", "100"))
     sleep_interval_seconds = int(os.getenv("SLEEP_INTERVAL", "1"))
 
-    chunking_result = TextChunker().chunk_content(data['documentContent'], file_path=data['documentUrl'].split('/')[-1], num_tokens=num_tokens, min_chunk_size=min_chunk_size, token_overlap=token_overlap)
+    chunking_result = TextChunker().chunk_content(data['documentContent'], file_path=data.filename, num_tokens=num_tokens, min_chunk_size=min_chunk_size, token_overlap=token_overlap)
     content_chunk_metadata = ChunkEmbeddingHelper().generate_chunks_with_embedding(data['documentUrl'], [c.content for c in chunking_result.chunks], 'content', sleep_interval_seconds)
 
     for document_chunk, embedding_metadata in zip(chunking_result.chunks, content_chunk_metadata):
@@ -32,7 +32,7 @@ def chunk_document(data):
     for chunk in chunking_result.chunks:
 
         chunks.append({
-            "filepath": get_filename(data['documentUrl']),
+            "filepath": data.filename,
             "chunk_id": chunk.embedding_metadata['index'], # type: ignore
             "offset": chunk.embedding_metadata['offset'],  # type: ignore
             "page": chunk.embedding_metadata['page'],  # type: ignore            
