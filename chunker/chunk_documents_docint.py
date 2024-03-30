@@ -114,8 +114,8 @@ def analyze_document_rest(filepath, filename, model):
     result = {}
     errors = []
 
-    if get_file_extension(filepath) in ["pdf"]:
-        docint_features = "ocr.highResolution"
+    if get_file_extension(filename) in ["pdf"]:
+        docint_features = "ocrHighResolution"
     else:
         docint_features = ""
 
