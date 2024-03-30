@@ -13,7 +13,21 @@ class DateTimeEncoder(JSONEncoder):
 def document_chunking(req: func.HttpRequest) -> func.HttpResponse:
     import jsonschema
     import logging
-    
+    import os
+
+    # host.json#/logging/logLevel/default and/or /Function configures filter
+    #   for resulting log level output  down to only Information by default
+    #
+    # https://learn.microsoft.com/en-us/azure/azure-functions/configure-monitoring?tabs=v2#configure-log-levels
+    # https://learn.microsoft.com/en-us/azure/azure-functions/configure-monitoring?tabs=v2#configure-categories
+    # https://learn.microsoft.com/en-us/azure/azure-functions/functions-host-json#logging
+    # https://learn.microsoft.com/en-us/azure/azure-functions/configure-monitoring?tabs=v2#overriding-monitoring-configuration-at-runtime
+    logging.getLogger().setLevel( os.getenv('LOGLEVEL', 'INFO').upper() )  # for all logging
+
+    logging.debug(os.environ)
+    for name, value in os.environ.items():
+        logging.debug(f'{name} = {value}')
+
     logging.info('Invoked document_chunking skill.')
     try:
         body = req.get_json()
