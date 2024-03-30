@@ -1,3 +1,4 @@
+import base64
 import json
 import logging
 import os
@@ -134,14 +135,16 @@ def analyze_document_rest(filepath, filename, model):
             "x-ms-useragent": "gpt-rag/1.0.0"
         }
 
+        body = {
+            "base64Source": base64.urlsafe_b64encode( blob_client.download_blob().readall() ).decode()
+        }
+
         try:
-            data = blob_client.download_blob().readall()
-            response = requests.post(request_endpoint, headers=headers, data=data)
+            response = requests.post(request_endpoint, headers=headers, json=body)
         except requests.exceptions.ConnectionError as e:
             logging.info("Connection error, retrying in 10seconds...")
             time.sleep(10)
-            data = blob_client.download_blob().readall()            
-            response = requests.post(request_endpoint, headers=headers, data=data)
+            response = requests.post(request_endpoint, headers=headers, json=body)
 
         
         logging.info(f"Removed file: `{blob_name}`.")
