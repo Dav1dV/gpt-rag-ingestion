@@ -131,19 +131,21 @@ def analyze_document_rest(filepath, filename, model):
     def request():
         return requests.post(request_endpoint, headers=headers, json=body)
 
-    if not network_isolation:
+    def add_error(message):
+        logging.error(error_message)
+        errors.append(error_message)
 
+    def abort(message, callback):
+        add_error(message)
+        if callback:
+            callback()
+        return result, errors
+
+    response = None
+    if not network_isolation:
         body = {
             "urlSource": filepath
         }
-        try:
-            # Send request
-            response = request()
-        except requests.exceptions.ConnectionError as conn_error:
-            logging.info("Connection error, retrying in 10seconds...")
-            time.sleep(10)
-            response = request()
-                
     else:
         # With network isolation doc int can't access container with no public access, so we download it and send its content as a stream.
 
@@ -158,7 +160,6 @@ def analyze_document_rest(filepath, filename, model):
         blob_service_client = BlobServiceClient(account_url=account_url, credential=credential)
         blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
 
-        blob_error = None
         try:
             body = {
                 "base64Source": base64.b64encode( blob_client.download_blob().readall() ).decode()
@@ -172,32 +173,29 @@ def analyze_document_rest(filepath, filename, model):
             # headers['Content-Type'] = get_content_type(file_ext)
             # def request():
             #     return requests.post(request_endpoint, headers=headers, data=data)
+        except Exception as blob_error:
+            return abort("Blob client error when reading from blob storage:  {blob_error}")
 
-            try:
-                response = request()
-            except requests.exceptions.ConnectionError as conn_error:
-                logging.info("Connection error, retrying in 10seconds...")
-                time.sleep(10)
-                response = request()
-        except Exception as e:
-            blob_error = e
+    request_error = None
+    try:
+        try:
+            response = request()
+        except requests.exceptions.ConnectionError as conn_error:
+            logging.info("Connection error, retrying in 10seconds...")
+            time.sleep(10)
+            response = request()
+    except Exception as e:
+        request_error = e
 
-        if blob_error:
-            error_message = f"Blob client error when reading from blob storage. {blob_error}"
-            logging.info(error_message)
-            errors.append(error_message)
-            return result, errors
-
-    if response.status_code != 202:
+    if response is None  or  response.status_code != 202:
         # Request failed
-        error_message = f"Document Intelligence request error:   code={response.status_code} reason=`{response.reason}` text=`{response.text}`"
-        logging.error(error_message)
-        logging.error(f"filepath:  {filepath}")
-        logging.debug(f"Document Intelligence request URL:     {request_endpoint}")
-        logging.debug(f"Document Intelligence request headers: {headers}")
-        logging.debug(f"Document Intelligence request body:    {body}")
-        errors.append(error_message)
-        return result, errors
+        error_message =   f"Document Intelligence request error:   {f'code={response.status_code} reason=`{response.reason}` text=`{response.text}`' if response  else request_error}"
+        def log_details():
+            logging.error(f"filepath:  {filepath}")
+            logging.debug(f"Document Intelligence request URL:     {request_endpoint}")
+            logging.debug(f"Document Intelligence request headers: {headers}")
+            logging.debug(f"Document Intelligence request body:    {body}")
+        return abort(error_message, log_details)
 
     # Poll for result
     get_url = response.headers["Operation-Location"]
@@ -211,8 +209,7 @@ def analyze_document_rest(filepath, filename, model):
         if result_response.status_code != 200 or result_json["status"] == "failed":
             # Request failed
             error_message = f"Doc Intelligence polling error, code {result_response.status_code}: {response.text}"
-            print(error_message)
-            errors.append(error_message)
+            add_error(error_message)
             break
 
         if result_json["status"] == "succeeded":
