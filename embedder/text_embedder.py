@@ -28,7 +28,7 @@ class TextEmbedder():
         gpt2_tokenizer = tiktoken.get_encoding("gpt2")
         return len(gpt2_tokenizer.encode(text))
 
-    def clean_text(self, text, token_limit=8191):
+    def clean_text(self, text, token_limit=8191):  # 8191 is ada-002 token limit
         # Clean up text (e.g. line breaks, )    
         text = re.sub(r'\s+', ' ', text).strip()
         text = re.sub(r'[\n\r]+', ' ', text).strip()
@@ -39,15 +39,16 @@ class TextEmbedder():
                 text = text[:-1]
         return text
 
-    @retry(reraise=True, wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(6))
-    def embed_content(self, text, clean_text=True, use_single_precision=True):
-        embedding_precision = 9 if use_single_precision else 18
-        if clean_text:
-            text = self.clean_text(text)
-        response = openai.Embedding.create(input=text, engine=self.AZURE_OPENAI_EMBEDDING_DEPLOYMENT)
+    # Overwritten below
+    # @retry(reraise=True, wait=wait_random_exponential(min=1, max=20), stop=stop_after_attempt(6))
+    # def embed_content(self, text, clean_text=True, use_single_precision=True):
+    #    embedding_precision = 9 if use_single_precision else 18
+    #    if clean_text:
+    #        text = self.clean_text(text)
+    #    response = openai.Embedding.create(input=text, engine=self.AZURE_OPENAI_EMBEDDING_DEPLOYMENT)
 
-        embedding = [round(x, embedding_precision) for x in response['data'][0]['embedding']] # type: ignore
-        return embedding
+    #    embedding = [round(x, embedding_precision) for x in response['data'][0]['embedding']] # type: ignore
+    #    return embedding
     
     def extract_retry_seconds(self, error_message):
         match = re.search(r'retry after (\d+)', error_message)
@@ -56,18 +57,21 @@ class TextEmbedder():
         else:
             return 60 # default to 60 seconds in case it can't be extracted
 
-    @retry(reraise=True, stop=stop_after_attempt(6))
     def embed_content(self, text, clean_text=True, use_single_precision=True):
         embedding_precision = 9 if use_single_precision else 18
+
         if clean_text:
-            text = self.clean_text(text)        
-        try:
-            response = openai.Embedding.create(input=text, engine=self.AZURE_OPENAI_EMBEDDING_DEPLOYMENT)
-            embedding = [round(x, embedding_precision) for x in response['data'][0]['embedding']] # type: ignore
-            return embedding            
-        except openai.error.RateLimitError as e:
-            error_message = str(e)
-            seconds = self.extract_retry_seconds(error_message) * 2
-            logging.warning(f"Embeddings model deployment rate limit exceeded, retrying in {seconds} seconds...")
-            time.sleep(seconds)
-            raise e # to make tenacity retry
+            text = self.clean_text(text)
+
+        @retry(reraise=True, stop=stop_after_attempt(6))
+        def embed():
+            try:
+                response = openai.Embedding.create(input=text, engine=self.AZURE_OPENAI_EMBEDDING_DEPLOYMENT)
+                embedding = [round(x, embedding_precision) for x in response['data'][0]['embedding']]  # type: ignore
+                return embedding
+            except openai.error.RateLimitError as e:
+                seconds = self.extract_retry_seconds(str(e))
+                logging.warning(f"Embeddings model deployment rate limit exceeded, retrying in {seconds} seconds...")
+                time.sleep(seconds)
+                raise e  # to make tenacity retry
+        return embed()
