@@ -10,7 +10,7 @@ from azure.keyvault.secrets import SecretClient
 from chunker import table_utils as tb
 from embedder.text_embedder import TextEmbedder
 from .token_estimator import TokenEstimator
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
 from utils.file_utils import get_file_extension
 from utils.file_utils import get_filename
 
@@ -87,7 +87,7 @@ def get_secret(secretName):
 # DOCUMENT INTELLIGENCE FUNCTIONS
 ##########################################################################################
 
-def analyze_document_rest(filepath, model):
+def analyze_document_rest(filepath, filename, model):
 
     result = {}
 
@@ -119,10 +119,10 @@ def analyze_document_rest(filepath, model):
 
         parsed_url = urlparse(filepath)
         account_url = parsed_url.scheme + "://" + parsed_url.netloc
-        container_name = parsed_url.path.split("/")[1]
-        blob_name = parsed_url.path.split("/")[2]
+        container_name = unquote(parsed_url.path.split("/")[1])
+        blob_name = filename
 
-        logging.info(f"Conecting to blob to get {blob_name}.")
+        logging.info(f"Connecting to blob to get `{blob_name}`.")
 
         credential = DefaultAzureCredential()
         blob_service_client = BlobServiceClient(account_url=account_url, credential=credential)
@@ -144,7 +144,7 @@ def analyze_document_rest(filepath, model):
             response = requests.post(request_endpoint, headers=headers, data=data)
 
         
-        logging.info(f"Removed file: {blob_name}.")
+        logging.info(f"Removed file: `{blob_name}`.")
 
     if response.status_code != 202:
         # Request failed
@@ -189,7 +189,7 @@ def get_chunk(content, url, page, chunk_id, text_embedder):
             "title": "default",
             "category": "default",
             "url": url,
-            "filepath": get_filename(url),            
+            "filepath": unquote(get_filename(url)),
             "content": content,
             "contentVector": text_embedder.embed_content(content)
     }
@@ -206,15 +206,15 @@ def chunk_document(data):
 
     text_embedder = TextEmbedder()
     filepath = f"{data['documentUrl']}{data['documentSasToken']}"
-    doc_name = filepath.split('/')[-1].split('?')[0]
+    doc_name = data.filename
 
     # 1) Analyze document with layout model
-    logging.info(f"Analyzing {doc_name}.") 
-    document = analyze_document_rest(filepath, 'prebuilt-layout')
+    logging.info(f"Analyzing `{doc_name}`.")
+    document = analyze_document_rest(filepath, doc_name, 'prebuilt-layout')
     n_pages = len(document['pages'])
-    logging.info(f"Analyzed {doc_name} ({n_pages} pages). Content: {document['content'][:200]}.") 
+    logging.info(f"Analyzed `{doc_name}` ({n_pages} pages). Content: {document['content'][:200]}.")
     if n_pages > 100:
-        logging.warn(f"DOCUMENT {doc_name} HAS MANY ({n_pages}) PAGES. Please consider splitting it into smaller documents of 100 pages.")
+        logging.warn(f"DOCUMENT `{doc_name}` HAS MANY ({n_pages}) PAGES. Please consider splitting it into smaller documents of 100 pages.")
 
     # 2) Chunk tables
     if 'tables' in document:
@@ -305,6 +305,6 @@ def chunk_document(data):
             except Exception as e:
                 errors.append(indexer_error_message('embedding', e))
     
-    logging.info(f"Finished chunking {doc_name}. {len(chunks)} chunks. {len(errors)} errors. {len(warnings)} warnings.")
+    logging.info(f"Finished chunking `{doc_name}`. {len(chunks)} chunks. {len(errors)} errors. {len(warnings)} warnings.")
 
     return chunks, errors, warnings
