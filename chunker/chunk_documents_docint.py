@@ -99,6 +99,8 @@ def analyze_document_rest(filepath, filename, model):
 
     request_endpoint = f"https://{os.environ['AZURE_FORMREC_SERVICE']}.cognitiveservices.azure.com/{formrec_or_docint}/documentModels/{model}:analyze?api-version={DOCINT_API_VERSION}&features={docint_features}&includeKeys=true"
 
+    response = None
+
     if not network_isolation:
         headers = {
             # "Content-Type": "application/json",
@@ -152,12 +154,15 @@ def analyze_document_rest(filepath, filename, model):
         
         logging.info(f"Removed file: `{blob_name}`.")
 
-    if response.status_code != 202:
+    if response is None  or  response.status_code != 202:
         # Request failed
-        logging.error(f"Document Intelligence API error:           {response.status_code} {response.reason} {response.text}")
+        if response is not None:
+            logging.error(f"Document Intelligence API error:           {response.status_code} {response.reason} {response.text}")
+
         logging.error(f"Document Intelligence API request URL:     {request_endpoint}")
         logging.error(f"Document Intelligence API request headers: {headers}")
         logging.error(f"Document Intelligence API request body:    {body}")
+
         return(result)
 
     # Poll for result
