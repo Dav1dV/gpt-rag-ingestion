@@ -135,21 +135,26 @@ def analyze_document_rest(filepath, model):
         }
 
         try:
-            data = blob_client.download_blob().readall()
-            response = requests.post(request_endpoint, headers=headers, data=data)
+            body = blob_client.download_blob().readall()
+            response = requests.post(request_endpoint, headers=headers, data=body)
         except requests.exceptions.ConnectionError as e:
             logging.info("Connection error, retrying in 10seconds...")
             time.sleep(10)
-            data = blob_client.download_blob().readall()            
-            response = requests.post(request_endpoint, headers=headers, data=data)
+            body = blob_client.download_blob().readall()
+            response = requests.post(request_endpoint, headers=headers, data=body)
 
         
         logging.info(f"Removed file: {blob_name}.")
 
-    if response.status_code != 202:
+    if not response  or  response.status_code != 202:
         # Request failed
-        logging.info(f"Doc Intelligence API error: {response.text}")
-        logging.info(f"urlSource: {filepath}")
+        if response:
+            logging.error(f"Document Intelligence API error:           {response.text}")
+
+        logging.error(f"Document Intelligence API request URL:     {request_endpoint}")
+        logging.error(f"Document Intelligence API request headers: {headers}")
+        logging.error(f"Document Intelligence API request body:    {body}")
+
         return(result)
 
     # Poll for result
