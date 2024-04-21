@@ -598,7 +598,6 @@ def execute_setup(subscription_id, resource_group, function_app_name, search_pri
         "dataSourceName" : f"{search_index_name}-datasource",
         "targetIndexName" : f"{search_index_name}",
         "skillsetName" : f"{search_index_name}-skillset-chunking",
-        "schedule" : { "interval" : f"{search_index_interval}"},
         "fieldMappings" : [
             {
                 "sourceFieldName" : "metadata_storage_path",
@@ -622,6 +621,19 @@ def execute_setup(subscription_id, resource_group, function_app_name, search_pri
             }
         }
     }
+    # batchSize              =  1  document / skillset Function execution
+    # maxFailedItemsPerBatch = -1  to tolerate batch errors
+    #                                without considering indexer run as failure
+    #                                & retry processing a batch multiple times
+    #                                    after its failure apparently
+    #                                      (e.g., embedding model request throttling)
+    #                                (`0` to fail indexer run after 1st batch failure
+    #                                       without retrying apparently)
+    # degreeOfParallelism    =  5  (default)  parallel batches at a time
+    #                                (`1` (minimum)  to only run 1 batch at a time
+    #                                   (e.g., to minimize likelihood of embedding model request throttling))
+    if search_index_interval:  # Otherwise (e.g., ""),  on demand (e.g., manually)
+        body["schedule"] = { "interval" : f"{search_index_interval}" }
     if network_isolation: body['parameters']['configuration']['executionEnvironment'] = "private"
     call_search_api(search_service, search_api_version, "indexers", f"{search_index_name}-indexer-chunk-documents", "put", credential, body)
 
