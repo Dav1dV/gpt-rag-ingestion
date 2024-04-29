@@ -385,7 +385,8 @@ def chunk_document(data):
                     overlapped_text = overlapped_text.split()
                     overlapped_text = overlapped_text[-round(TOKEN_OVERLAP/0.75):] 
                     overlapped_text = " ".join(overlapped_text)
-                    paragraph_content = overlapped_text
+                    paragraph_content = overlapped_text + "\n" + paragraph['content']
+                    # TODO ?If estimate_tokens(chunk_content) ≥ NUM_TOKENS, subdivide chunk_content into multiple chunks?
                     
                     if check_timeout(start_time):
                         errors.append(indexer_error_message('timeout'))
@@ -395,11 +396,13 @@ def chunk_document(data):
         if not error_occurred:
             chunk_id += 1
             # last section
-            chunk_size = TOKEN_ESTIMATOR.estimate_tokens(paragraph_content)
+            # chunk_size = TOKEN_ESTIMATOR.estimate_tokens(paragraph_content)
             try:
-                if chunk_size > MIN_CHUNK_SIZE:
-                    chunk = get_chunk(paragraph_content, data['documentUrl'], page, chunk_id, text_embedder)
-                    chunks.append(chunk)
+                # if chunk_size > MIN_CHUNK_SIZE:
+                #     chunk = get_chunk(paragraph_content, data['documentUrl'], page, chunk_id, text_embedder)
+                #     chunks.append(chunk)
+                chunk = get_chunk(paragraph_content, data['documentUrl'], page, chunk_id, text_embedder)
+                chunks.append(chunk)
             except Exception as e:
                 errors.append(indexer_error_message('embedding', e))
     
