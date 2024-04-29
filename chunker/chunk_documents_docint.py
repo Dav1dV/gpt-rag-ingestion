@@ -372,20 +372,23 @@ def chunk_document(data):
                 if chunk_size < NUM_TOKENS:
                     paragraph_content = paragraph_content + "\n" + paragraph['content']
                 else:
-                    chunk_id += 1
-                    try:
-                        chunk = get_chunk(paragraph_content, data['documentUrl'], page, chunk_id, text_embedder)
-                        chunks.append(chunk)
-                    except Exception as e:
-                        errors.append(indexer_error_message('embedding', e))
-                        error_occurred = True
-                        break
-                    # overlap logic
-                    overlapped_text = paragraph_content
-                    overlapped_text = overlapped_text.split()
-                    overlapped_text = overlapped_text[-round(TOKEN_OVERLAP/0.75):] 
-                    overlapped_text = " ".join(overlapped_text)
-                    paragraph_content = overlapped_text + "\n" + paragraph['content']
+                    if len(paragraph_content) > 0:
+                        chunk_id += 1
+                        try:
+                            chunk = get_chunk(paragraph_content, data['documentUrl'], page, chunk_id, text_embedder)
+                            chunks.append(chunk)
+                        except Exception as e:
+                            errors.append(indexer_error_message('embedding', e))
+                            error_occurred = True
+                            break
+                        # overlap logic
+                        overlapped_text = paragraph_content
+                        overlapped_text = overlapped_text.split()
+                        overlapped_text = overlapped_text[-round(TOKEN_OVERLAP/0.75):]
+                        overlapped_text = " ".join(overlapped_text)
+                        paragraph_content = overlapped_text
+
+                    paragraph_content += "\n" + paragraph['content']
                     # TODO ?If estimate_tokens(chunk_content) ≥ NUM_TOKENS, subdivide chunk_content into multiple chunks?
                     
                     if check_timeout(start_time):
