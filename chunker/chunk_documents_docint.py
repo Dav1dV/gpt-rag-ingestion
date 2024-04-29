@@ -295,7 +295,8 @@ def chunk_document(data):
     start_time = time.time()
 
     text_embedder = TextEmbedder()
-    filepath = f"{data['documentUrl']}{data['documentSasToken']}"
+    document_url  = data['documentUrl']
+    filepath      = f"{document_url}{data['documentSasToken']}"
     doc_name = data.filename
 
     # 1) Analyze document with layout model
@@ -313,6 +314,21 @@ def chunk_document(data):
         if n_pages > pages_max_recommended:
             logging.warn(f"DOCUMENT `{doc_name}` HAS MANY PAGES ({n_pages}).  Please consider splitting it into smaller documents of <{pages_max_recommended} pages.")
 
+
+    def add_error(error_type, exception=None):
+        nonlocal errors, error_occurred
+        errors.append(indexer_error_message(error_type, exception))
+        error_occurred = True
+
+    def add_chunk():
+        nonlocal chunk_id, chunks, chunk_content, document_url, page, text_embedder
+        chunk_id += 1
+        try:
+            chunks.append(get_chunk(chunk_content, document_url, page, chunk_id, text_embedder))
+        except Exception as e:
+            add_error('embedding', e)
+            raise e
+
     # 3) Chunk tables
     if 'tables' in document and not error_occurred:
 
@@ -327,8 +343,7 @@ def chunk_document(data):
             if idx not in processed_tables:
                 processed_tables.append(idx)
                 # TODO: check if table is too big for one chunck and split it to avoid truncation
-                table_content = tb.table_to_html(table) 
-                chunk_id += 1
+                chunk_content = tb.table_to_html(table)
 
                 # page number logic
                 page = 1
@@ -338,27 +353,24 @@ def chunk_document(data):
 
                 # if there is text before the table add it to the beggining of the chunk to improve context.
                 text = tb.text_before_table(document, table, document["tables"])
-                table_content = text + table_content
+                chunk_content = text + chunk_content
 
                 # if there is text after the table add it to the end of the chunk to improve context.
                 text = tb.text_after_table(document, table, document["tables"])
-                table_content = table_content + text
+                chunk_content = chunk_content + text
                 try:
-                    chunk = get_chunk(table_content, data['documentUrl'], page, chunk_id, text_embedder)
-                    chunks.append(chunk)
+                    add_chunk()
                 except Exception as e:
-                    errors.append(indexer_error_message('embedding', e))
-                    error_occurred = True
                     break
 
                 if check_timeout(start_time):
-                    errors.append(indexer_error_message('timeout'))
-                    error_occurred = True
+                    add_error('timeout')
                     break
 
     # 4) Chunk paragraphs
     if 'paragraphs' in document and not error_occurred:    
-        paragraph_content = ""
+        chunk_content = ''
+
         for paragraph in document['paragraphs']:
 
             # page number logic
@@ -368,46 +380,37 @@ def chunk_document(data):
                 page = bounding_regions[0].get('pageNumber', 1)
 
             if not tb.paragraph_in_a_table(paragraph, document['tables']):
-                chunk_size = TOKEN_ESTIMATOR.estimate_tokens(paragraph_content + paragraph['content'])
-                if chunk_size < NUM_TOKENS:
-                    paragraph_content = paragraph_content + "\n" + paragraph['content']
+                paragraph_content_to_append = '\n' + paragraph['content']
+                chunk_content_expanded      = chunk_content + paragraph_content_to_append
+                chunk_content_expanded_size = TOKEN_ESTIMATOR.estimate_tokens(chunk_content_expanded)
+                if chunk_content_expanded_size < NUM_TOKENS:
+                    chunk_content = chunk_content_expanded
                 else:
-                    if len(paragraph_content) > 0:
-                        chunk_id += 1
+                    if len(chunk_content) > 0:
                         try:
-                            chunk = get_chunk(paragraph_content, data['documentUrl'], page, chunk_id, text_embedder)
-                            chunks.append(chunk)
+                            add_chunk()
                         except Exception as e:
-                            errors.append(indexer_error_message('embedding', e))
-                            error_occurred = True
                             break
-                        # overlap logic
-                        overlapped_text = paragraph_content
-                        overlapped_text = overlapped_text.split()
-                        overlapped_text = overlapped_text[-round(TOKEN_OVERLAP/0.75):]
-                        overlapped_text = " ".join(overlapped_text)
-                        paragraph_content = overlapped_text
 
-                    paragraph_content += "\n" + paragraph['content']
+                        # overlap logic
+                        chunk_content = ' '.join(chunk_content.split()[-round(TOKEN_OVERLAP/0.75):])
+
+                    chunk_content += paragraph_content_to_append
                     # TODO ?If estimate_tokens(chunk_content) ≥ NUM_TOKENS, subdivide chunk_content into multiple chunks?
-                    
+
                     if check_timeout(start_time):
-                        errors.append(indexer_error_message('timeout'))
-                        error_occurred = True
+                        add_error('timeout')
                         break
 
         if not error_occurred:
-            chunk_id += 1
             # last section
             # chunk_size = TOKEN_ESTIMATOR.estimate_tokens(paragraph_content)
             try:
                 # if chunk_size > MIN_CHUNK_SIZE:
-                #     chunk = get_chunk(paragraph_content, data['documentUrl'], page, chunk_id, text_embedder)
-                #     chunks.append(chunk)
-                chunk = get_chunk(paragraph_content, data['documentUrl'], page, chunk_id, text_embedder)
-                chunks.append(chunk)
+                #     add_chunk()
+                add_chunk()
             except Exception as e:
-                errors.append(indexer_error_message('embedding', e))
+                add_error('embedding', e)
     
     logging.info(f"Finished chunking `{doc_name}`. {len(chunks)} chunks. {len(errors)} errors. {len(warnings)} warnings.")
 
